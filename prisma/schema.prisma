@@ -1,0 +1,40 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING_SIGNATURE
+  ACTIVE
+  FILLED
+  CANCELLED
+}
+
+model Orders {
+  id                 Int         @id @default(autoincrement())
+  status             OrderStatus @default(PENDING_SIGNATURE)
+  maker              String      @db.VarChar(255)
+  makerToken         String      @db.VarChar(255)
+  makerTokenDecimals Int
+  makerAmount        Decimal     @db.Decimal(78, 0)
+  taker              String?     @db.VarChar(255)
+  takerToken         String      @db.VarChar(255)
+  takerTokenDecimals Int
+  takerAmount        Decimal     @db.Decimal(78, 0)
+  salt               String      @unique @db.VarChar(255)
+  tx_hash            String?     @db.VarChar(255)
+  signature          String?     @db.VarChar(255)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @default(now())
+}
