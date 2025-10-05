@@ -8,6 +8,8 @@ import { UnsignedTypedDataDto } from './dto/unsigned-typed-data.dto';
 import { baseSepolia } from 'viem/chains';
 import { ConfigService } from '@nestjs/config';
 import { OrderStatus } from '@prisma/client';
+import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { PaginatedOrdersResponseDto } from './dto/paginated-orders-response.dto';
 
 @Injectable()
 export class OrdersService {
@@ -94,5 +96,36 @@ export class OrdersService {
     });
 
     return valid;
+  }
+
+  async getOrders(
+    paginationQuery: PaginationQueryDto,
+  ): Promise<PaginatedOrdersResponseDto> {
+    const { page = 1, limit = 10 } = paginationQuery;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prismaService.orders.findMany({
+        skip,
+        take: limit,
+        where: {
+          status: OrderStatus.ACTIVE,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+      this.prismaService.orders.count(),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 }
