@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PrismaService } from 'src/shared/prisma.service';
 import { BlockchainService } from 'src/shared/blockhain.service';
@@ -10,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { OrderStatus } from '@prisma/client';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { PaginatedOrdersResponseDto } from './dto/paginated-orders-response.dto';
+import { SignedTypedDataResponseDto } from './dto/signed-typed-data-response.dto';
 
 @Injectable()
 export class OrdersService {
@@ -96,6 +101,58 @@ export class OrdersService {
     });
 
     return valid;
+  }
+
+  async executeOrder(orderId: number): Promise<SignedTypedDataResponseDto> {
+    const order = await this.prismaService.orders.findUnique({
+      where: {
+        id: orderId,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    if (order.status !== OrderStatus.ACTIVE) {
+      throw new BadRequestException('Order is not active');
+    }
+    if (!order.signature) {
+      throw new BadRequestException('Order is not signed');
+    }
+
+    return {
+      signature: order.signature,
+      typedData: {
+        account: order.maker as Address,
+        domain: {
+          name: 'Owna',
+          version: '1',
+          chainId: baseSepolia.id,
+          verifyingContract: this.configService.getOrThrow<Address>(
+            'SECONDARY_MARKET_CONTRACT_ADDRESS',
+          ),
+        },
+        types: {
+          Order: [
+            { name: 'maker', type: 'address' },
+            { name: 'makerToken', type: 'address' },
+            { name: 'makerAmount', type: 'uint256' },
+            { name: 'takerToken', type: 'address' },
+            { name: 'takerAmount', type: 'uint256' },
+            { name: 'salt', type: 'string' },
+          ] as const,
+        },
+        primaryType: 'Order' as const,
+        message: {
+          maker: order.maker,
+          makerToken: order.makerToken,
+          makerAmount: order.makerAmount.toString(),
+          takerToken: order.takerToken,
+          takerAmount: order.takerAmount.toString(),
+          salt: order.salt,
+        },
+      },
+    };
   }
 
   async getOrders(

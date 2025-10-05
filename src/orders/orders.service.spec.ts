@@ -8,6 +8,10 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { baseSepolia } from 'viem/chains';
 import { UnsignedTypedDataDto } from './dto/unsigned-typed-data.dto';
 import { OrderStatus } from '@prisma/client';
+import {
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -20,6 +24,7 @@ describe('OrdersService', () => {
     orders: {
       create: jest.fn(),
       update: jest.fn(),
+      findUnique: jest.fn(),
     },
   };
 
@@ -412,6 +417,150 @@ describe('OrdersService', () => {
           signature: mockSignature,
         },
       });
+    });
+  });
+
+  describe('executeOrder', () => {
+    const mockOrderId = 1;
+    const mockContractAddress = '0xcontract1234567890123456789012345678901234';
+    const mockSignature =
+      '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12';
+
+    const mockActiveOrder = {
+      id: mockOrderId,
+      maker: '0x1234567890123456789012345678901234567890',
+      makerToken: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+      makerAmount: BigInt('1000000000000000000'),
+      takerToken: '0x9876543210987654321098765432109876543210',
+      takerAmount: BigInt('2000000000000000000'),
+      salt: 'test-salt-123456',
+      signature: mockSignature,
+      status: OrderStatus.ACTIVE,
+      makerTokenDecimals: 18,
+      takerTokenDecimals: 6,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    beforeEach(() => {
+      mockConfigService.getOrThrow.mockReturnValue(mockContractAddress);
+    });
+
+    it('should execute order successfully and return signed typed data', async () => {
+      mockPrismaService.orders.findUnique.mockResolvedValue(mockActiveOrder);
+
+      const result = await service.executeOrder(mockOrderId);
+
+      expect(result).toEqual({
+        signature: mockSignature,
+        typedData: {
+          account: mockActiveOrder.maker,
+          domain: {
+            name: 'Owna',
+            version: '1',
+            chainId: baseSepolia.id,
+            verifyingContract: mockContractAddress,
+          },
+          types: {
+            Order: [
+              { name: 'maker', type: 'address' },
+              { name: 'makerToken', type: 'address' },
+              { name: 'makerAmount', type: 'uint256' },
+              { name: 'takerToken', type: 'address' },
+              { name: 'takerAmount', type: 'uint256' },
+              { name: 'salt', type: 'string' },
+            ],
+          },
+          primaryType: 'Order',
+          message: {
+            maker: mockActiveOrder.maker,
+            makerToken: mockActiveOrder.makerToken,
+            makerAmount: mockActiveOrder.makerAmount.toString(),
+            takerToken: mockActiveOrder.takerToken,
+            takerAmount: mockActiveOrder.takerAmount.toString(),
+            salt: mockActiveOrder.salt,
+          },
+        },
+      });
+    });
+
+    it('should throw NotFoundException when order is not found', async () => {
+      mockPrismaService.orders.findUnique.mockResolvedValue(null);
+
+      await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+        new NotFoundException('Order not found'),
+      );
+    });
+
+    it('should throw BadRequestException when order is not active', async () => {
+      const inactiveOrder = {
+        ...mockActiveOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      };
+
+      mockPrismaService.orders.findUnique.mockResolvedValue(inactiveOrder);
+
+      await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+        new BadRequestException('Order is not active'),
+      );
+    });
+
+    it('should throw BadRequestException when order is not signed', async () => {
+      const unsignedOrder = {
+        ...mockActiveOrder,
+        signature: null,
+      };
+
+      mockPrismaService.orders.findUnique.mockResolvedValue(unsignedOrder);
+
+      await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+        new BadRequestException('Order is not signed'),
+      );
+    });
+
+    it('should query order with correct ID', async () => {
+      mockPrismaService.orders.findUnique.mockResolvedValue(mockActiveOrder);
+
+      await service.executeOrder(mockOrderId);
+
+      expect(mockPrismaService.orders.findUnique).toHaveBeenCalledWith({
+        where: {
+          id: mockOrderId,
+        },
+      });
+    });
+
+    it('should retrieve contract address from config', async () => {
+      mockPrismaService.orders.findUnique.mockResolvedValue(mockActiveOrder);
+
+      await service.executeOrder(mockOrderId);
+
+      expect(configService.getOrThrow).toHaveBeenCalledWith(
+        'SECONDARY_MARKET_CONTRACT_ADDRESS',
+      );
+    });
+
+    it('should handle different order statuses correctly', async () => {
+      const statuses = [
+        OrderStatus.PENDING_SIGNATURE,
+        OrderStatus.CANCELLED,
+        OrderStatus.FILLED,
+      ];
+
+      for (const status of statuses) {
+        const orderWithStatus = {
+          ...mockActiveOrder,
+          status,
+        };
+
+        mockPrismaService.orders.findUnique.mockResolvedValue(
+          orderWithStatus,
+        );
+
+        await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+          new BadRequestException('Order is not active'),
+        );
+      }
     });
   });
 });

@@ -1,9 +1,10 @@
-import { Controller, Post, Body, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Param } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UnsignedTypedDataDto } from './dto/unsigned-typed-data.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { PaginatedOrdersResponseDto } from './dto/paginated-orders-response.dto';
+import { SignedTypedDataResponseDto } from './dto/signed-typed-data-response.dto';
 
 @Controller('orders')
 export class OrdersController {
@@ -29,5 +30,12 @@ export class OrdersController {
     @Query() paginationQuery: PaginationQueryDto,
   ): Promise<PaginatedOrdersResponseDto> {
     return await this.ordersService.getOrders(paginationQuery);
+  }
+
+  @Get(':orderId/execute')
+  async executeOrder(
+    @Param('orderId') orderId: string,
+  ): Promise<SignedTypedDataResponseDto> {
+    return await this.ordersService.executeOrder(+orderId);
   }
 }
