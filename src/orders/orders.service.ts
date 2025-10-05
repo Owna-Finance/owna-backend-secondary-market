@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderDto } from './dto/update-order.dto';
 import { PrismaService } from 'src/shared/prisma.service';
 import { BlockchainService } from 'src/shared/blockhain.service';
 import { Address } from 'viem';
 import { StringUtilService } from 'src/shared/string-util.service';
-import { SaltedOrderDto } from './dto/salted-order.dto';
+import { UnsignedTypedDataDto } from './dto/unsigned-typed-data.dto';
+import { baseSepolia } from 'viem/chains';
+import { ConfigService } from '@nestjs/config';
+import { OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
@@ -13,9 +15,11 @@ export class OrdersService {
     private readonly prismaService: PrismaService,
     private readonly blockchainService: BlockchainService,
     private readonly stringUtilService: StringUtilService,
+    private readonly configService: ConfigService,
   ) {}
 
-  async create(createOrderDto: CreateOrderDto): Promise<SaltedOrderDto> {
+  async create(createOrderDto: CreateOrderDto): Promise<UnsignedTypedDataDto> {
+    const maker = createOrderDto.maker as Address;
     const makerToken = createOrderDto.makerToken as Address;
     const takerToken = createOrderDto.takerToken as Address;
 
@@ -34,28 +38,61 @@ export class OrdersService {
     });
 
     return {
-      maker: order.maker,
-      makerToken: order.makerToken,
-      makerAmount: order.makerAmount.toString(),
-      takerToken: order.takerToken,
-      takerAmount: order.takerAmount.toString(),
-      salt: order.salt,
+      account: maker,
+      domain: {
+        name: 'Owna',
+        version: '1',
+        chainId: baseSepolia.id,
+        verifyingContract: this.configService.getOrThrow<Address>(
+          'SECONDARY_MARKET_CONTRACT_ADDRESS',
+        ),
+      },
+      types: {
+        Order: [
+          { name: 'maker', type: 'address' },
+          { name: 'makerToken', type: 'address' },
+          { name: 'makerAmount', type: 'uint256' },
+          { name: 'takerToken', type: 'address' },
+          { name: 'takerAmount', type: 'uint256' },
+          { name: 'salt', type: 'string' },
+        ] as const,
+      },
+      primaryType: 'Order' as const,
+      message: {
+        maker: order.maker,
+        makerToken: order.makerToken,
+        makerAmount: order.makerAmount.toString(),
+        takerToken: order.takerToken,
+        takerAmount: order.takerAmount.toString(),
+        salt: order.salt,
+      },
     };
   }
 
-  findAll() {
-    return `This action returns all orders`;
-  }
+  async verifySignedOrder(order: UnsignedTypedDataDto, signature: string) {
+    const { account, domain, types, primaryType, message } = order;
 
-  findOne(id: number) {
-    return `This action returns a #${id} order`;
-  }
+    const valid = await this.blockchainService
+      .getPublicClient()
+      .verifyTypedData({
+        address: account,
+        domain: domain,
+        types: types,
+        primaryType: primaryType,
+        message: message,
+        signature: signature as `0x${string}`,
+      });
 
-  update(id: number, updateOrderDto: UpdateOrderDto) {
-    return `This action updates a #${id} order`;
-  }
+    await this.prismaService.orders.update({
+      where: {
+        salt: message.salt,
+      },
+      data: {
+        status: OrderStatus.ACTIVE,
+        signature: signature,
+      },
+    });
 
-  remove(id: number) {
-    return `This action removes a #${id} order`;
+    return valid;
   }
 }

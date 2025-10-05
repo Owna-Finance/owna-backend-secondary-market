@@ -6,6 +6,10 @@ import { baseSepolia } from 'viem/chains';
 export class BlockchainService {
   client = createPublicClient({ chain: baseSepolia, transport: http() });
 
+  getPublicClient() {
+    return this.client;
+  }
+
   async getDecimalsERC20(address: Address): Promise<number> {
     const decimals = await this.client.readContract({
       address: address,
