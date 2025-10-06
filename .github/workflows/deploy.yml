@@ -29,15 +29,9 @@ jobs:
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           # Skrip yang akan dijalankan di dalam server EC2
           script: |
-            # Masuk ke direktori proyek
             cd /var/www/owna-backend-secondary-market
-            # Ambil perubahan terbaru dari branch main
             git pull origin main
-            # Install dependencies jika ada yang baru
-            /home/ec2-user/.nvm/versions/node/v22.20.0/bin/pnpm pnpm install
-            # Jalankan migrasi database
-            /home/ec2-user/.nvm/versions/node/v22.20.0/bin/pnpm pnpm prisma migrate deploy
-            # Build ulang aplikasi
-            /home/ec2-user/.nvm/versions/node/v22.20.0/bin/pnpm pnpm run build
-            # Restart aplikasi menggunakan PM2
-            /home/ec2-user/.local/share/pnpm/pm2 pm2 restart owna-backend
+            pnpm install
+            pnpm prisma migrate deploy
+            pnpm run build
+            pm2 restart owna-backend
