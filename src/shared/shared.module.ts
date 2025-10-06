@@ -5,8 +5,10 @@ import { baseSepolia } from 'viem/chains';
 import { PrismaService } from './prisma.service';
 import { BlockchainService } from './blockhain.service';
 import { StringUtilService } from './string-util.service';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
+  imports: [ConfigModule],
   providers: [
     PrismaService,
     StringUtilService,
@@ -15,9 +17,7 @@ import { StringUtilService } from './string-util.service';
       useFactory: (configService: ConfigService) => {
         return createPublicClient({
           chain: baseSepolia,
-          transport: http(
-            configService.get<string>('BASE_SEPOLIA_RPC_URL'),
-          ),
+          transport: http(configService.get<string>('BASE_SEPOLIA_RPC_URL')),
         });
       },
       inject: [ConfigService],
