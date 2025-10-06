@@ -11,6 +11,7 @@ import { OrderStatus } from '@prisma/client';
 import {
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 
 describe('OrdersService', () => {
@@ -25,6 +26,8 @@ describe('OrdersService', () => {
       create: jest.fn(),
       update: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
   };
 
@@ -197,16 +200,31 @@ describe('OrdersService', () => {
       mockBlockchainService.getDecimalsERC20.mockRejectedValue(error);
 
       await expect(service.create(mockCreateOrderDto)).rejects.toThrow(
-        'Failed to fetch decimals',
+        BadRequestException,
+      );
+      await expect(service.create(mockCreateOrderDto)).rejects.toThrow(
+        'Failed to fetch token decimals: Failed to fetch decimals',
       );
     });
 
     it('should handle errors when database creation fails', async () => {
+      // Reset blockchain mock to succeed, so database error can be triggered
+      mockBlockchainService.getDecimalsERC20.mockReset();
+      mockBlockchainService.getDecimalsERC20.mockResolvedValueOnce(
+        mockMakerTokenDecimals,
+      );
+      mockBlockchainService.getDecimalsERC20.mockResolvedValueOnce(
+        mockTakerTokenDecimals,
+      );
+
       const error = new Error('Database error');
       mockPrismaService.orders.create.mockRejectedValue(error);
 
       await expect(service.create(mockCreateOrderDto)).rejects.toThrow(
-        'Database error',
+        InternalServerErrorException,
+      );
+      await expect(service.create(mockCreateOrderDto)).rejects.toThrow(
+        'Failed to create order: Database error',
       );
     });
   });
@@ -266,6 +284,10 @@ describe('OrdersService', () => {
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
       mockPrismaService.orders.update.mockResolvedValue(mockUpdatedOrder);
 
       const result = await service.verifySignedOrder(
@@ -276,20 +298,20 @@ describe('OrdersService', () => {
       expect(result).toBe(true);
     });
 
-    it('should verify signature and return false when signature is invalid', async () => {
+    it('should throw BadRequestException when signature is invalid', async () => {
       const mockPublicClient = {
         verifyTypedData: jest.fn().mockResolvedValue(false),
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
-      mockPrismaService.orders.update.mockResolvedValue(mockUpdatedOrder);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
 
-      const result = await service.verifySignedOrder(
-        mockUnsignedTypedData,
-        mockSignature,
-      );
-
-      expect(result).toBe(false);
+      await expect(
+        service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
+      ).rejects.toThrow(new BadRequestException('Invalid signature'));
     });
 
     it('should call verifyTypedData with correct parameters', async () => {
@@ -298,6 +320,10 @@ describe('OrdersService', () => {
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
       mockPrismaService.orders.update.mockResolvedValue(mockUpdatedOrder);
 
       await service.verifySignedOrder(mockUnsignedTypedData, mockSignature);
@@ -319,6 +345,10 @@ describe('OrdersService', () => {
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
       mockPrismaService.orders.update.mockResolvedValue(mockUpdatedOrder);
 
       await service.verifySignedOrder(mockUnsignedTypedData, mockSignature);
@@ -341,6 +371,10 @@ describe('OrdersService', () => {
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
       mockPrismaService.orders.update.mockResolvedValue(mockUpdatedOrder);
 
       await service.verifySignedOrder(mockUnsignedTypedData, mockSignature);
@@ -355,10 +389,17 @@ describe('OrdersService', () => {
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
 
       await expect(
         service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
-      ).rejects.toThrow('Blockchain verification failed');
+      ).rejects.toThrow(InternalServerErrorException);
+      await expect(
+        service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
+      ).rejects.toThrow('Failed to verify signature: Blockchain verification failed');
     });
 
     it('should handle errors when database update fails', async () => {
@@ -367,56 +408,47 @@ describe('OrdersService', () => {
       };
 
       mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
+      mockPrismaService.orders.findUnique.mockResolvedValue({
+        ...mockUpdatedOrder,
+        status: OrderStatus.PENDING_SIGNATURE,
+      });
 
       const error = new Error('Database update failed');
       mockPrismaService.orders.update.mockRejectedValue(error);
 
       await expect(
         service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
-      ).rejects.toThrow('Database update failed');
+      ).rejects.toThrow(InternalServerErrorException);
+      await expect(
+        service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
+      ).rejects.toThrow('Failed to update order: Database update failed');
     });
 
-    it('should handle case when order with salt does not exist', async () => {
-      const mockPublicClient = {
-        verifyTypedData: jest.fn().mockResolvedValue(true),
-      };
-
-      mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
-
-      const error = new Error('Record not found');
-      mockPrismaService.orders.update.mockRejectedValue(error);
+    it('should throw NotFoundException when order with salt does not exist', async () => {
+      mockPrismaService.orders.findUnique.mockResolvedValue(null);
 
       await expect(
         service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
-      ).rejects.toThrow('Record not found');
+      ).rejects.toThrow(new NotFoundException('Order not found'));
     });
 
-    it('should update order even when signature is invalid', async () => {
-      const mockPublicClient = {
-        verifyTypedData: jest.fn().mockResolvedValue(false),
-      };
+    it('should throw BadRequestException when signature format is invalid', async () => {
+      const invalidSignature = '0xinvalid';
 
-      mockBlockchainService.getPublicClient.mockReturnValue(mockPublicClient);
-      mockPrismaService.orders.update.mockResolvedValue({
+      await expect(
+        service.verifySignedOrder(mockUnsignedTypedData, invalidSignature),
+      ).rejects.toThrow(new BadRequestException('Invalid signature format'));
+    });
+
+    it('should throw BadRequestException when order is not in PENDING_SIGNATURE status', async () => {
+      mockPrismaService.orders.findUnique.mockResolvedValue({
         ...mockUpdatedOrder,
         status: OrderStatus.ACTIVE,
       });
 
-      const result = await service.verifySignedOrder(
-        mockUnsignedTypedData,
-        mockSignature,
-      );
-
-      expect(result).toBe(false);
-      expect(mockPrismaService.orders.update).toHaveBeenCalledWith({
-        where: {
-          salt: mockUnsignedTypedData.message.salt,
-        },
-        data: {
-          status: OrderStatus.ACTIVE,
-          signature: mockSignature,
-        },
-      });
+      await expect(
+        service.verifySignedOrder(mockUnsignedTypedData, mockSignature),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -501,7 +533,10 @@ describe('OrdersService', () => {
       mockPrismaService.orders.findUnique.mockResolvedValue(inactiveOrder);
 
       await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
-        new BadRequestException('Order is not active'),
+        BadRequestException,
+      );
+      await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+        `Order is not active. Current status: ${OrderStatus.PENDING_SIGNATURE}`,
       );
     });
 
@@ -558,9 +593,149 @@ describe('OrdersService', () => {
         );
 
         await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
-          new BadRequestException('Order is not active'),
+          BadRequestException,
         );
       }
+    });
+
+    it('should throw BadRequestException for invalid order ID', async () => {
+      await expect(service.executeOrder(0)).rejects.toThrow(
+        new BadRequestException('Invalid order ID'),
+      );
+
+      await expect(service.executeOrder(-1)).rejects.toThrow(
+        new BadRequestException('Invalid order ID'),
+      );
+    });
+
+    it('should throw InternalServerErrorException when database query fails', async () => {
+      const error = new Error('Database error');
+      mockPrismaService.orders.findUnique.mockRejectedValue(error);
+
+      await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(service.executeOrder(mockOrderId)).rejects.toThrow(
+        'Failed to fetch order: Database error',
+      );
+    });
+  });
+
+  describe('getOrders', () => {
+    const mockOrders = [
+      {
+        id: 1,
+        maker: '0x1234567890123456789012345678901234567890',
+        makerToken: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        makerAmount: BigInt('1000000000000000000'),
+        takerToken: '0x9876543210987654321098765432109876543210',
+        takerAmount: BigInt('2000000000000000000'),
+        salt: 'test-salt-1',
+        signature: '0xsignature1',
+        status: OrderStatus.ACTIVE,
+        makerTokenDecimals: 18,
+        takerTokenDecimals: 6,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        id: 2,
+        maker: '0x2234567890123456789012345678901234567890',
+        makerToken: '0xbbcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        makerAmount: BigInt('3000000000000000000'),
+        takerToken: '0x8876543210987654321098765432109876543210',
+        takerAmount: BigInt('4000000000000000000'),
+        salt: 'test-salt-2',
+        signature: '0xsignature2',
+        status: OrderStatus.ACTIVE,
+        makerTokenDecimals: 18,
+        takerTokenDecimals: 6,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+
+    it('should return paginated orders with default pagination', async () => {
+      mockPrismaService.orders.findMany.mockResolvedValue(mockOrders);
+      mockPrismaService.orders.count.mockResolvedValue(2);
+
+      const result = await service.getOrders({});
+
+      expect(result).toEqual({
+        data: mockOrders,
+        meta: {
+          total: 2,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+        },
+      });
+
+      expect(mockPrismaService.orders.findMany).toHaveBeenCalledWith({
+        skip: 0,
+        take: 10,
+        where: {
+          status: OrderStatus.ACTIVE,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      expect(mockPrismaService.orders.count).toHaveBeenCalledWith({
+        where: {
+          status: OrderStatus.ACTIVE,
+        },
+      });
+    });
+
+    it('should return paginated orders with custom pagination', async () => {
+      mockPrismaService.orders.findMany.mockResolvedValue(mockOrders);
+      mockPrismaService.orders.count.mockResolvedValue(25);
+
+      const result = await service.getOrders({ page: 2, limit: 5 });
+
+      expect(result).toEqual({
+        data: mockOrders,
+        meta: {
+          total: 25,
+          page: 2,
+          limit: 5,
+          totalPages: 5,
+        },
+      });
+
+      expect(mockPrismaService.orders.findMany).toHaveBeenCalledWith({
+        skip: 5,
+        take: 5,
+        where: {
+          status: OrderStatus.ACTIVE,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+    });
+
+    it('should throw InternalServerErrorException when database query fails', async () => {
+      const error = new Error('Database error');
+      mockPrismaService.orders.findMany.mockRejectedValue(error);
+
+      await expect(service.getOrders({})).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(service.getOrders({})).rejects.toThrow(
+        'Failed to fetch orders: Database error',
+      );
+    });
+
+    it('should calculate total pages correctly', async () => {
+      mockPrismaService.orders.findMany.mockResolvedValue(mockOrders);
+      mockPrismaService.orders.count.mockResolvedValue(23);
+
+      const result = await service.getOrders({ page: 1, limit: 10 });
+
+      expect(result.meta.totalPages).toBe(3);
     });
   });
 });

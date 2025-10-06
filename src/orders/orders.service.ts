@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -30,19 +31,35 @@ export class OrdersService {
     const makerToken = createOrderDto.makerToken as Address;
     const takerToken = createOrderDto.takerToken as Address;
 
-    const [makerTokenDecimals, takerTokenDecimals] = await Promise.all([
-      this.blockchainService.getDecimalsERC20(makerToken),
-      this.blockchainService.getDecimalsERC20(takerToken),
-    ]);
+    let makerTokenDecimals: number;
+    let takerTokenDecimals: number;
 
-    const order = await this.prismaService.orders.create({
-      data: {
-        ...createOrderDto,
-        makerTokenDecimals: makerTokenDecimals,
-        takerTokenDecimals: takerTokenDecimals,
-        salt: this.stringUtilService.generateSalt(),
-      },
-    });
+    try {
+      [makerTokenDecimals, takerTokenDecimals] = await Promise.all([
+        this.blockchainService.getDecimalsERC20(makerToken),
+        this.blockchainService.getDecimalsERC20(takerToken),
+      ]);
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to fetch token decimals: ${error.message}`,
+      );
+    }
+
+    let order;
+    try {
+      order = await this.prismaService.orders.create({
+        data: {
+          ...createOrderDto,
+          makerTokenDecimals: makerTokenDecimals,
+          takerTokenDecimals: takerTokenDecimals,
+          salt: this.stringUtilService.generateSalt(),
+        },
+      });
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Failed to create order: ${error.message}`,
+      );
+    }
 
     return {
       account: maker,
@@ -76,45 +93,101 @@ export class OrdersService {
     };
   }
 
-  async verifySignedOrder(order: UnsignedTypedDataDto, signature: string) {
+  async verifySignedOrder(
+    order: UnsignedTypedDataDto,
+    signature: string,
+  ): Promise<boolean> {
     const { account, domain, types, primaryType, message } = order;
 
-    const valid = await this.blockchainService
-      .getPublicClient()
-      .verifyTypedData({
-        address: account,
-        domain: domain,
-        types: types,
-        primaryType: primaryType,
-        message: message,
-        signature: signature as `0x${string}`,
-      });
+    // Validate signature format
+    if (!signature || !signature.match(/^0x[a-fA-F0-9]{130}$/)) {
+      throw new BadRequestException('Invalid signature format');
+    }
 
-    await this.prismaService.orders.update({
-      where: {
-        salt: message.salt,
-      },
-      data: {
-        status: OrderStatus.ACTIVE,
-        signature: signature,
-      },
+    // Check if order exists and is in correct state
+    const existingOrder = await this.prismaService.orders.findUnique({
+      where: { salt: message.salt },
     });
+
+    if (!existingOrder) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (existingOrder.status !== OrderStatus.PENDING_SIGNATURE) {
+      throw new BadRequestException(
+        `Order is not pending signature. Current status: ${existingOrder.status}`,
+      );
+    }
+
+    // Verify signature
+    let valid: boolean;
+    try {
+      valid = await this.blockchainService
+        .getPublicClient()
+        .verifyTypedData({
+          address: account,
+          domain: domain,
+          types: types,
+          primaryType: primaryType,
+          message: message,
+          signature: signature as `0x${string}`,
+        });
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Failed to verify signature: ${error.message}`,
+      );
+    }
+
+    if (!valid) {
+      throw new BadRequestException('Invalid signature');
+    }
+
+    // Update order only if signature is valid
+    try {
+      await this.prismaService.orders.update({
+        where: {
+          salt: message.salt,
+        },
+        data: {
+          status: OrderStatus.ACTIVE,
+          signature: signature,
+        },
+      });
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Failed to update order: ${error.message}`,
+      );
+    }
 
     return valid;
   }
 
   async executeOrder(orderId: number): Promise<SignedTypedDataResponseDto> {
-    const order = await this.prismaService.orders.findUnique({
-      where: {
-        id: orderId,
-      },
-    });
+    // Validate orderId
+    if (!orderId || orderId <= 0) {
+      throw new BadRequestException('Invalid order ID');
+    }
+
+    let order;
+    try {
+      order = await this.prismaService.orders.findUnique({
+        where: {
+          id: orderId,
+        },
+      });
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch order: ${error.message}`,
+      );
+    }
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
     if (order.status !== OrderStatus.ACTIVE) {
-      throw new BadRequestException('Order is not active');
+      throw new BadRequestException(
+        `Order is not active. Current status: ${order.status}`,
+      );
     }
     if (!order.signature) {
       throw new BadRequestException('Order is not signed');
@@ -161,28 +234,38 @@ export class OrdersService {
     const { page = 1, limit = 10 } = paginationQuery;
     const skip = (page - 1) * limit;
 
-    const [data, total] = await Promise.all([
-      this.prismaService.orders.findMany({
-        skip,
-        take: limit,
-        where: {
-          status: OrderStatus.ACTIVE,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      }),
-      this.prismaService.orders.count(),
-    ]);
+    try {
+      const [data, total] = await Promise.all([
+        this.prismaService.orders.findMany({
+          skip,
+          take: limit,
+          where: {
+            status: OrderStatus.ACTIVE,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        }),
+        this.prismaService.orders.count({
+          where: {
+            status: OrderStatus.ACTIVE,
+          },
+        }),
+      ]);
 
-    return {
-      data,
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+      return {
+        data,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch orders: ${error.message}`,
+      );
+    }
   }
 }
