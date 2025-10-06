@@ -29,9 +29,6 @@ jobs:
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           # Skrip yang akan dijalankan di dalam server EC2
           script: |
-            # Muat NVM agar perintah pnpm & pm2 dikenali
-            export NVM_DIR="/home/ec2-user/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             # Masuk ke direktori proyek
             cd /var/www/owna-backend-secondary-market
             # Ambil perubahan terbaru dari branch main
