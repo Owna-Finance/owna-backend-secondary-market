@@ -1,0 +1,43 @@
+# Nama workflow yang akan muncul di tab Actions
+name: Deploy to EC2
+
+# Pemicu: Workflow ini akan berjalan setiap kali ada 'push' ke branch 'main'
+on:
+  push:
+    branches:
+      - main
+
+# Daftar pekerjaan yang akan dilakukan
+jobs:
+  deploy:
+    # Menggunakan mesin virtual Ubuntu terbaru dari GitHub untuk menjalankan pekerjaan ini
+    runs-on: ubuntu-latest
+
+    # Langkah-langkah yang akan dieksekusi
+    steps:
+      # Langkah 1: Mengunduh kodemu ke dalam mesin virtual
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Langkah 2: Login ke server EC2 dan menjalankan skrip deployment
+      - name: SSH and Deploy
+        uses: appleboy/ssh-action@master
+        with:
+          # Mengambil kredensial dari GitHub Secrets yang sudah kita buat
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          # Skrip yang akan dijalankan di dalam server EC2
+          script: |
+            # Masuk ke direktori proyek
+            cd owna-backend-secondary-market
+            # Ambil perubahan terbaru dari branch main
+            git pull origin main
+            # Install dependencies jika ada yang baru
+            pnpm install
+            # Jalankan migrasi database
+            pnpm prisma migrate deploy
+            # Build ulang aplikasi
+            pnpm run build
+            # Restart aplikasi menggunakan PM2
+            pm2 restart owna-backend
