@@ -10,7 +10,7 @@ import { SignedTypedDataResponseDto } from './dto/signed-typed-data-response.dto
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
-  @Post('create')
+  @Post('')
   async create(
     @Body() createOrderDto: CreateOrderDto,
   ): Promise<UnsignedTypedDataDto> {
