@@ -34,10 +34,10 @@ jobs:
             # Ambil perubahan terbaru dari branch main
             git pull origin main
             # Install dependencies jika ada yang baru
-            pnpm install
+            /home/ec2-user/.nvm/versions/node/v22.20.0/bin/pnpm pnpm install
             # Jalankan migrasi database
-            pnpm prisma migrate deploy
+            /home/ec2-user/.nvm/versions/node/v22.20.0/bin/pnpm pnpm prisma migrate deploy
             # Build ulang aplikasi
-            pnpm run build
+            /home/ec2-user/.nvm/versions/node/v22.20.0/bin/pnpm pnpm run build
             # Restart aplikasi menggunakan PM2
-            pm2 restart owna-backend
+            /home/ec2-user/.local/share/pnpm/pm2 pm2 restart owna-backend
