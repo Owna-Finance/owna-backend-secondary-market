@@ -33,7 +33,7 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             # Masuk ke direktori proyek
-            cd /home/ec2-user/owna-backend-secondary-market
+            cd /var/www/owna-backend-secondary-market
             # Ambil perubahan terbaru dari branch main
             git pull origin main
             # Install dependencies jika ada yang baru
