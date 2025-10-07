@@ -1,98 +1,376 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Owna Finance - Secondary Market Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend service for managing order book and transactions in the Owna Finance secondary market platform. This system uses EIP-712 signed typed data to ensure authenticity and security of orders created by users.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 📋 Project Description
 
-## Description
+Owna Finance Secondary Market Backend is a NestJS application that provides REST API for order management in the secondary market platform. The platform allows users to:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Create orders to swap ERC20 tokens on Base Sepolia blockchain
+- Sign orders using Ethereum wallet (EIP-712)
+- Verify order signatures
+- Execute signed orders
+- View active orders list with pagination
 
-## Project setup
+## 👨‍💻 Frontend Developer Guide
 
-```bash
-$ pnpm install
+### Complete Flow: Creating and Verifying an Order
+
+This guide shows frontend developers how to implement the complete order creation flow, from creating an order to making it available for takers to purchase.
+
+#### Step 1: Create Order
+
+**API Call:**
+
+```typescript
+const createOrder = async () => {
+  const response = await fetch('http://localhost:3000/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      maker: userWalletAddress, // User's wallet address
+      makerToken: tokenToSellAddress, // Token the user wants to sell
+      makerAmount: '1000000000000000000', // Amount in wei (1 token with 18 decimals)
+      takerToken: tokenToBuyAddress, // Token the user wants to receive
+      takerAmount: '2000000000000000000', // Amount in wei (2 tokens with 18 decimals)
+    }),
+  });
+
+  const unsignedTypedData = await response.json();
+  return unsignedTypedData;
+};
 ```
 
-## Compile and run the project
+**Response Example:**
 
-```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+```json
+{
+  "account": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "domain": {
+    "name": "Owna",
+    "version": "1",
+    "chainId": 84532,
+    "verifyingContract": "0x..."
+  },
+  "types": {
+    "Order": [
+      { "name": "maker", "type": "address" },
+      { "name": "makerToken", "type": "address" },
+      { "name": "makerAmount", "type": "uint256" },
+      { "name": "takerToken", "type": "address" },
+      { "name": "takerAmount", "type": "uint256" },
+      { "name": "salt", "type": "string" }
+    ]
+  },
+  "primaryType": "Order",
+  "message": {
+    "maker": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    "makerToken": "0xAbC...",
+    "makerAmount": "1000000000000000000",
+    "takerToken": "0xDeF...",
+    "takerAmount": "2000000000000000000",
+    "salt": "1234567890"
+  }
+}
 ```
 
-## Run tests
+#### Step 2: Sign the Order with User's Wallet
 
-```bash
-# unit tests
-$ pnpm run test
+**Using wagmi/viem:**
 
-# e2e tests
-$ pnpm run test:e2e
+```typescript
+import { useSignTypedData } from 'wagmi';
 
-# test coverage
-$ pnpm run test:cov
+const { signTypedDataAsync } = useSignTypedData();
+
+const signOrder = async (unsignedTypedData) => {
+  const signature = await signTypedDataAsync({
+    domain: unsignedTypedData.domain,
+    types: unsignedTypedData.types,
+    primaryType: unsignedTypedData.primaryType,
+    message: unsignedTypedData.message,
+  });
+
+  return signature; // Returns: "0x123abc..."
+};
 ```
 
-## Deployment
+**Using ethers.js:**
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```typescript
+const signOrder = async (unsignedTypedData, signer) => {
+  const signature = await signer._signTypedData(
+    unsignedTypedData.domain,
+    { Order: unsignedTypedData.types.Order },
+    unsignedTypedData.message,
+  );
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+  return signature;
+};
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+#### Step 3: Verify the Signed Order
 
-## Resources
+**API Call:**
 
-Check out a few resources that may come in handy when working with NestJS:
+```typescript
+const verifyOrder = async (unsignedTypedData, signature) => {
+  const response = await fetch('http://localhost:3000/orders/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      order: unsignedTypedData,
+      signature: signature,
+    }),
+  });
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+  const result = await response.json();
+  return result; // Returns: true if valid
+};
+```
 
-## Support
+#### Step 4: Complete Implementation Example
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```typescript
+const createAndVerifyOrder = async () => {
+  try {
+    // Step 1: Create order
+    console.log('Creating order...');
+    const unsignedTypedData = await createOrder();
 
-## Stay in touch
+    // Step 2: Request user signature
+    console.log('Requesting signature from user...');
+    const signature = await signOrder(unsignedTypedData);
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+    // Step 3: Verify the signature on backend
+    console.log('Verifying signature...');
+    const isValid = await verifyOrder(unsignedTypedData, signature);
 
-## License
+    if (isValid) {
+      console.log('✅ Order created and verified successfully!');
+      console.log('Order is now ACTIVE and available for takers to purchase.');
+    }
+  } catch (error) {
+    console.error('Error:', error);
+  }
+};
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+#### Important Notes for Frontend Developers:
+
+1. **Order Status Flow:**
+   - After Step 1 (Create): Order status = `PENDING_SIGNATURE`
+   - After Step 3 (Verify): Order status = `ACTIVE` ✅
+   - Only `ACTIVE` orders can be purchased by takers
+
+2. **User Experience Tips:**
+   - Show loading state during signature request
+   - Handle user rejection of signature gracefully
+   - Display confirmation after successful verification
+   - Store the order ID for future reference
+
+3. **Error Handling:**
+
+   ```typescript
+   try {
+     const signature = await signOrder(unsignedTypedData);
+   } catch (error) {
+     if (error.code === 4001) {
+       // User rejected signature
+       console.log('User cancelled signing');
+     } else {
+       // Other errors
+       console.error('Signing failed:', error);
+     }
+   }
+   ```
+
+4. **Token Amounts:**
+   - Always use wei format (string) for amounts
+   - For 18 decimal tokens: 1 token = "1000000000000000000"
+   - Use libraries like ethers.js `parseUnits()` or viem `parseEther()` for conversion
+
+## 🔄 Technical Flow - Order Management
+
+### 1. **Create Order Flow**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Controller
+    participant Service
+    participant Blockchain
+    participant Database
+
+    Client->>Controller: POST /orders<br/>{maker, makerToken, makerAmount, takerToken, takerAmount}
+    Controller->>Service: create(createOrderDto)
+    Service->>Blockchain: getDecimalsERC20(makerToken)
+    Blockchain-->>Service: makerTokenDecimals
+    Service->>Blockchain: getDecimalsERC20(takerToken)
+    Blockchain-->>Service: takerTokenDecimals
+    Service->>Service: Generate unique salt
+    Service->>Database: Save order<br/>Status: PENDING_SIGNATURE
+    Database-->>Service: Order saved
+    Service-->>Controller: Unsigned Typed Data (EIP-712)
+    Controller-->>Client: Return unsigned typed data
+```
+
+**Process Details:**
+
+- Client sends order details (maker, makerToken, makerAmount, takerToken, takerAmount)
+- Backend fetches decimals from both token contracts
+- System generates unique salt for the order
+- Order is saved to database with status `PENDING_SIGNATURE`
+- Backend returns unsigned typed data in EIP-712 format for wallet signing
+
+### 2. **Signature Verification Flow**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Controller
+    participant Service
+    participant Blockchain
+    participant Database
+
+    Client->>Controller: POST /orders/verify<br/>{order, signature}
+    Controller->>Service: verifySignedOrder(order, signature)
+    Service->>Service: Validate signature format<br/>(0x + 130 hex chars)
+    Service->>Database: Find order by salt
+    Database-->>Service: Order data
+    Service->>Service: Check status = PENDING_SIGNATURE
+    Service->>Blockchain: verifyTypedData()<br/>Verify EIP-712 signature
+    Blockchain-->>Service: Signature valid ✓
+    Service->>Database: Update order<br/>Status: ACTIVE<br/>Save signature
+    Database-->>Service: Order updated
+    Service-->>Controller: true (valid)
+    Controller-->>Client: Verification successful
+```
+
+**Process Details:**
+
+- Client sends order data and signature from wallet signing
+- Backend validates signature format (must be 0x + 130 hex chars)
+- Check if order exists and status is `PENDING_SIGNATURE`
+- Verify signature using viem's `verifyTypedData`
+- If valid, update order status to `ACTIVE` and save signature
+
+### 3. **Get Orders List Flow**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Controller
+    participant Service
+    participant Database
+
+    Client->>Controller: GET /orders?page=1&limit=10
+    Controller->>Service: getOrders(paginationQuery)
+    Service->>Database: Query orders<br/>WHERE status = ACTIVE<br/>ORDER BY createdAt DESC<br/>LIMIT 10 OFFSET 0
+    Database-->>Service: Order list + total count
+    Service->>Service: Calculate pagination meta<br/>(total, page, totalPages)
+    Service-->>Controller: {data: [...], meta: {...}}
+    Controller-->>Client: Paginated orders response
+```
+
+**Process Details:**
+
+- Client requests order list with pagination
+- Backend queries orders with status `ACTIVE`
+- Apply pagination and sorting
+- Return data with metadata (total, page, totalPages)
+
+### 4. **Execute Order Flow**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Controller
+    participant Service
+    participant Database
+
+    Client->>Controller: GET /orders/:orderId/execute
+    Controller->>Service: executeOrder(orderId)
+    Service->>Database: Find order by ID
+    Database-->>Service: Order data
+    Service->>Service: Validate status = ACTIVE
+    Service->>Service: Validate signature exists
+    Service->>Service: Build signed typed data<br/>{signature, typedData}
+    Service-->>Controller: SignedTypedDataResponse
+    Controller-->>Client: Return signed order<br/>Ready for on-chain execution
+```
+
+**Process Details:**
+
+- Client requests order execution by ID
+- Backend fetches order from database
+- Validate order status is `ACTIVE` and signature exists
+- Return complete signed typed data ready for blockchain transaction
+
+## 🚀 Setup and Installation
+
+### Prerequisites
+
+- Node.js >= 18
+- pnpm
+- PostgreSQL
+- Base Sepolia RPC URL
+
+### Installation
+
+1. **Install dependencies**
+
+```bash
+pnpm install
+```
+
+2. **Setup environment variables**
+   Create `.env` file with the following configuration:
+
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/owna_secondary_market"
+SECONDARY_MARKET_CONTRACT_ADDRESS="0x..."
+BASE_SEPOLIA_RPC_URL="https://sepolia.base.org"
+PORT=3000
+```
+
+3. **Setup database**
+
+```bash
+# Generate Prisma client
+pnpm prisma generate
+
+# Run migrations
+pnpm prisma migrate dev
+```
+
+4. **Run the application**
+
+```bash
+# Development mode with watch
+pnpm run start:dev
+
+# Production mode
+pnpm run start:prod
+```
+
+## 🧪 Testing
+
+```bash
+# Unit tests
+pnpm run test
+
+# E2E tests
+pnpm run test:e2e
+
+# Test coverage
+pnpm run test:cov
+```
+
+## 📚 API Documentation
+
+After the application is running, access Swagger documentation at:
+
+```
+http://localhost:3000/api-docs
+```
